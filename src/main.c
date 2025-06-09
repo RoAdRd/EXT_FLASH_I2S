@@ -93,8 +93,8 @@ typedef struct {
 #define WAV_MAGIC 0x57415645  // "WAVE" in hex
 
 /* I2S Audio Configuration */
-#define I2S_SAMPLE_RATE     44100
-#define I2S_CHANNELS        2
+#define I2S_SAMPLE_RATE     16000
+#define I2S_CHANNELS        1      /* Mono audio */
 #define I2S_WORD_SIZE       16
 #define I2S_BLOCK_SIZE      1024   /* Balanced size for embedded systems */
 #define I2S_NUM_BLOCKS      8      /* Reasonable buffer count for embedded RAM */
@@ -123,7 +123,9 @@ static int chunk_read(const struct device *flash_dev, uint32_t offset, uint8_t *
                      size_t size, uint16_t expected_index);
 static int i2s_audio_init(const struct device **i2s_dev);
 static int play_wav_audio(const struct device *i2s_dev, const uint8_t *wav_data, size_t wav_size);
+static int play_wav_audio_from_flash_chunked(const struct device *i2s_dev, const struct device *flash_dev);
 static void convert_wav_to_i2s_format(const uint8_t *wav_data, size_t wav_size, int16_t *i2s_buffer, size_t *i2s_samples);
+static int read_wav_chunk_from_flash(const struct device *flash_dev, uint32_t chunk_index, uint8_t *buffer, size_t buffer_size, size_t *bytes_read);
 
 /* WAV file validation */
 static bool validate_wav_header(const wav_header_t *header)
@@ -401,6 +403,272 @@ static int wav_read_chunked(const struct device *flash_dev, uint8_t *output_buff
 /* Static buffers to avoid stack overflow - sized for chunked processing */
 static uint8_t test_wav_buffer[8192];   /* 8KB buffer for chunked processing */
 static uint8_t read_wav_buffer[8192];   /* 8KB buffer for chunked processing */
+
+/* Function to read WAV chunk from flash storage */
+static int read_wav_chunk_from_flash(const struct device *flash_dev, uint32_t chunk_index, uint8_t *buffer, size_t buffer_size, size_t *bytes_read)
+{
+    wav_metadata_t metadata;
+    uint32_t flash_offset;
+    int rc;
+    
+    /* Read metadata */
+    rc = flash_read(flash_dev, SPI_FLASH_TEST_REGION_OFFSET, &metadata, sizeof(metadata));
+    if (rc != 0) {
+        LOG_ERR("Failed to read metadata: %d", rc);
+        return rc;
+    }
+    
+    /* Validate metadata */
+    if (metadata.magic != WAV_MAGIC) {
+        LOG_ERR("Invalid metadata magic: 0x%x", metadata.magic);
+        return -1;
+    }
+    
+    /* Check if chunk index is valid */
+    if (chunk_index >= metadata.chunk_count) {
+        *bytes_read = 0;
+        return 0; /* End of file */
+    }
+    
+    /* Calculate flash offset for this chunk */
+    flash_offset = SPI_FLASH_TEST_REGION_OFFSET + METADATA_SIZE + (chunk_index * WAV_CHUNK_SIZE);
+    
+    /* Read chunk from flash */
+    uint32_t max_chunk_data = WAV_CHUNK_SIZE - sizeof(chunk_header_t);
+    uint32_t remaining_file_data = metadata.file_size - (chunk_index * max_chunk_data);
+    uint32_t expected_chunk_size = (remaining_file_data > max_chunk_data) ? max_chunk_data : remaining_file_data;
+    
+    rc = chunk_read(flash_dev, flash_offset, buffer, expected_chunk_size, chunk_index);
+    if (rc < 0) {
+        LOG_ERR("Failed to read chunk %u from flash", chunk_index);
+        return rc;
+    }
+    
+    *bytes_read = rc;
+    return 0;
+}
+
+/* Flash-based WAV file reader - similar to SD card file interface */
+typedef struct {
+    const struct device *flash_dev;
+    wav_metadata_t metadata;
+    uint32_t current_position;  /* Current position in WAV data (bytes from start of file) */
+    uint32_t current_chunk;     /* Current chunk being read */
+    uint32_t chunk_offset;      /* Offset within current chunk */
+    bool header_read;           /* Whether WAV header has been processed */
+    bool chunk_loaded;          /* Whether current chunk is loaded */
+} flash_wav_file_t;
+
+/* Static buffer for chunk data to avoid stack overflow */
+static uint8_t flash_chunk_data[4088];   /* Buffer for current chunk data (WAV_CHUNK_SIZE - chunk_header_t) */
+
+/* Initialize flash WAV file reader */
+static int flash_wav_open(flash_wav_file_t *file, const struct device *flash_dev)
+{
+    int ret;
+    
+    memset(file, 0, sizeof(flash_wav_file_t));
+    file->flash_dev = flash_dev;
+    
+    /* Read metadata */
+    ret = flash_read(flash_dev, SPI_FLASH_TEST_REGION_OFFSET, &file->metadata, sizeof(file->metadata));
+    if (ret != 0) {
+        LOG_ERR("Failed to read metadata: %d", ret);
+        return ret;
+    }
+    
+    if (file->metadata.magic != WAV_MAGIC) {
+        LOG_ERR("Invalid metadata magic: 0x%x", file->metadata.magic);
+        return -1;
+    }
+    
+    LOG_INF("Flash WAV file opened: %u bytes, %u chunks", file->metadata.file_size, file->metadata.chunk_count);
+    return 0;
+}
+
+/* Read data from flash WAV file - similar to fs_read() */
+static ssize_t flash_wav_read(flash_wav_file_t *file, void *buffer, size_t size)
+{
+    uint8_t *buf = (uint8_t *)buffer;
+    size_t total_read = 0;
+    int ret;
+    
+    while (total_read < size && file->current_position < file->metadata.file_size) {
+        /* Calculate which chunk we need */
+        uint32_t max_chunk_data = WAV_CHUNK_SIZE - sizeof(chunk_header_t);
+        uint32_t target_chunk = file->current_position / max_chunk_data;
+        uint32_t offset_in_chunk = file->current_position % max_chunk_data;
+        
+        /* Load chunk if we've moved to a new one or haven't loaded any yet */
+        if (target_chunk != file->current_chunk || !file->chunk_loaded) {
+            size_t bytes_read;
+            ret = read_wav_chunk_from_flash(file->flash_dev, target_chunk, flash_chunk_data, sizeof(flash_chunk_data), &bytes_read);
+            if (ret < 0) {
+                LOG_ERR("Failed to read chunk %u: %d", target_chunk, ret);
+                return ret;
+            }
+            if (bytes_read == 0) {
+                break; /* End of file */
+            }
+            file->current_chunk = target_chunk;
+            file->chunk_loaded = true;
+        }
+        
+        /* Copy data from chunk buffer */
+        size_t remaining_in_chunk = sizeof(flash_chunk_data) - offset_in_chunk;
+        size_t remaining_to_read = size - total_read;
+        size_t remaining_in_file = file->metadata.file_size - file->current_position;
+        size_t to_copy = MIN(MIN(remaining_in_chunk, remaining_to_read), remaining_in_file);
+        
+        if (to_copy > 0) {
+            memcpy(buf + total_read, flash_chunk_data + offset_in_chunk, to_copy);
+            total_read += to_copy;
+            file->current_position += to_copy;
+        } else {
+            break;
+        }
+    }
+    
+    return total_read;
+}
+
+/* Static file structure to avoid stack overflow */
+static flash_wav_file_t static_wav_file;
+
+/* Play WAV audio from flash using SD card-like approach */
+static int play_wav_audio_from_flash_chunked(const struct device *i2s_dev, const struct device *flash_dev)
+{
+    wav_header_t wav_header;
+    struct i2s_config i2s_cfg;
+    void *tx_mem_block;
+    uint32_t total_bytes_played = 0;
+    bool i2s_started = false;
+    int ret;
+    ssize_t bytes_read;
+    
+    LOG_INF("Starting WAV playbook from flash (SD card-like approach)");
+    
+    /* Open flash WAV file */
+    ret = flash_wav_open(&static_wav_file, flash_dev);
+    if (ret < 0) {
+        LOG_ERR("Failed to open flash WAV file: %d", ret);
+        return ret;
+    }
+    
+    /* Read WAV header */
+    bytes_read = flash_wav_read(&static_wav_file, &wav_header, sizeof(wav_header));
+    if (bytes_read < sizeof(wav_header)) {
+        LOG_ERR("Failed to read WAV header: read %zd bytes, expected %zu", bytes_read, sizeof(wav_header));
+        return -EIO;
+    }
+    
+    /* Validate WAV header */
+    if (!validate_wav_header(&wav_header)) {
+        LOG_ERR("Invalid WAV header");
+        return -EINVAL;
+    }
+    
+    LOG_INF("WAV Info: %u Hz, %u-bit, %u channels, data size: %u bytes",
+            wav_header.sample_rate, wav_header.bits_per_sample, wav_header.channels, wav_header.data_size);
+    
+    /* Configure I2S for mono output */
+    i2s_cfg.word_size = wav_header.bits_per_sample;
+    i2s_cfg.channels = I2S_CHANNELS;  /* Force mono */
+    i2s_cfg.format = I2S_FMT_DATA_FORMAT_I2S;
+    i2s_cfg.frame_clk_freq = wav_header.sample_rate;
+    i2s_cfg.block_size = I2S_BLOCK_SIZE;
+    i2s_cfg.timeout = 2000;
+    i2s_cfg.options = I2S_OPT_FRAME_CLK_MASTER | I2S_OPT_BIT_CLK_MASTER;
+    i2s_cfg.mem_slab = &i2s_tx_mem_slab;
+    
+    ret = i2s_configure(i2s_dev, I2S_DIR_TX, &i2s_cfg);
+    if (ret < 0) {
+        LOG_ERR("Failed to configure I2S stream: %d", ret);
+        return ret;
+    }
+    
+    LOG_INF("I2S configured: %u Hz, %u-bit, %u channels, block_size %zu bytes",
+            i2s_cfg.frame_clk_freq, i2s_cfg.word_size, i2s_cfg.channels, i2s_cfg.block_size);
+    
+    /* Play audio data */
+    LOG_INF("Starting playback...");
+    
+    while (total_bytes_played < wav_header.data_size) {
+        /* Allocate I2S memory block */
+        ret = k_mem_slab_alloc(&i2s_tx_mem_slab, &tx_mem_block, K_SECONDS(1));
+        if (ret < 0) {
+            LOG_ERR("Failed to allocate I2S TX memory block: %d", ret);
+            break;
+        }
+        
+        /* Calculate how much to read */
+        size_t bytes_to_read = MIN(i2s_cfg.block_size, wav_header.data_size - total_bytes_played);
+        
+        /* Read audio data from flash */
+        bytes_read = flash_wav_read(&static_wav_file, tx_mem_block, bytes_to_read);
+        if (bytes_read < 0) {
+            LOG_ERR("Failed to read WAV data: %d", (int)bytes_read);
+            k_mem_slab_free(&i2s_tx_mem_slab, tx_mem_block);
+            break;
+        }
+        
+        if (bytes_read == 0 && bytes_to_read > 0) {
+            LOG_INF("End of WAV data reached unexpectedly");
+            k_mem_slab_free(&i2s_tx_mem_slab, tx_mem_block);
+            break;
+        }
+        
+        if (bytes_read == 0 && bytes_to_read == 0) {
+            k_mem_slab_free(&i2s_tx_mem_slab, tx_mem_block);
+            break;
+        }
+        
+        /* Pad with silence if needed */
+        if (bytes_read < i2s_cfg.block_size) {
+            memset((uint8_t *)tx_mem_block + bytes_read, 0, i2s_cfg.block_size - bytes_read);
+        }
+        
+        /* Send to I2S */
+        ret = i2s_write(i2s_dev, tx_mem_block, i2s_cfg.block_size);
+        if (ret < 0) {
+            LOG_ERR("I2S write error: %d", ret);
+            k_mem_slab_free(&i2s_tx_mem_slab, tx_mem_block);
+            break;
+        }
+        
+        /* Start I2S transmission on first block */
+        if (!i2s_started) {
+            ret = i2s_trigger(i2s_dev, I2S_DIR_TX, I2S_TRIGGER_START);
+            if (ret < 0) {
+                LOG_ERR("Failed to trigger I2S START: %d", ret);
+                break;
+            }
+            i2s_started = true;
+            LOG_INF("I2S transmission started");
+        }
+        
+        total_bytes_played += bytes_read;
+        
+        /* Log progress occasionally */
+        if (total_bytes_played % (I2S_BLOCK_SIZE * 10) == 0) {
+            LOG_INF("Played %u / %u bytes", total_bytes_played, wav_header.data_size);
+        }
+    }
+    
+    /* Drain I2S queue */
+    if (i2s_started) {
+        LOG_INF("Draining I2S TX queue");
+        ret = i2s_trigger(i2s_dev, I2S_DIR_TX, I2S_TRIGGER_DRAIN);
+        if (ret < 0) {
+            LOG_ERR("Failed to DRAIN I2S TX: %d", ret);
+        } else {
+            LOG_INF("I2S DRAIN complete - playback finished");
+        }
+    }
+    
+    LOG_INF("Flash WAV playback completed. Total bytes played: %u", total_bytes_played);
+    return 0;
+}
 
 /* Test function for WAV file operations - chunked processing for large files */
 void wav_file_test(const struct device *flash_dev)
@@ -791,22 +1059,16 @@ int main(void)
 	LOG_INF("\n=== I2S Audio Playback Test ===");
 	ret = i2s_audio_init(&i2s_dev);
 	if (ret == 0) {
-		/* Read WAV data from flash and play it */
-		size_t read_size = sizeof(read_wav_buffer);
-		ret = wav_read_chunked(flash_dev, read_wav_buffer, &read_size);
+		/* Try to play WAV data from flash using chunked reading (SD card-like approach) */
+		LOG_INF("Playing WAV audio from flash memory (chunked)...");
+		ret = play_wav_audio_from_flash_chunked(i2s_dev, flash_dev);
 		if (ret == 0) {
-			LOG_INF("Playing WAV audio from flash memory...");
-			ret = play_wav_audio(i2s_dev, read_wav_buffer, read_size);
-			if (ret == 0) {
-				LOG_INF("Audio playback test completed successfully!");
-			} else {
-				LOG_ERR("Audio playback failed: %d", ret);
-			}
+			LOG_INF("Chunked audio playback from flash completed successfully!");
 		} else {
-			LOG_ERR("Failed to read WAV data from flash: %d", ret);
+			LOG_ERR("Chunked audio playback from flash failed: %d", ret);
 			
 			/* Fallback: play WAV data directly from header file */
-			LOG_INF("Playing WAV audio from header file...");
+			LOG_INF("Fallback: Playing WAV audio from header file...");
 			const uint8_t *wav_data = GET_WAV_DATA();
 			size_t wav_size = GET_WAV_DATA_SIZE();
 			ret = play_wav_audio(i2s_dev, wav_data, wav_size);
