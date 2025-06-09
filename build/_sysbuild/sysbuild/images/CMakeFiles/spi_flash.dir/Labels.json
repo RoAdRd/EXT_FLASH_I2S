@@ -1,0 +1,43 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/CMakeFiles/spi_flash"
+		},
+		{
+			"file" : "/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/CMakeFiles/spi_flash.rule"
+		},
+		{
+			"file" : "/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/CMakeFiles/spi_flash-complete.rule"
+		},
+		{
+			"file" : "/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/spi_flash-prefix/src/spi_flash-stamp/spi_flash-build.rule"
+		},
+		{
+			"file" : "/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/spi_flash-prefix/src/spi_flash-stamp/spi_flash-configure.rule"
+		},
+		{
+			"file" : "/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/spi_flash-prefix/src/spi_flash-stamp/spi_flash-download.rule"
+		},
+		{
+			"file" : "/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/spi_flash-prefix/src/spi_flash-stamp/spi_flash-install.rule"
+		},
+		{
+			"file" : "/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/spi_flash-prefix/src/spi_flash-stamp/spi_flash-mkdir.rule"
+		},
+		{
+			"file" : "/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/spi_flash-prefix/src/spi_flash-stamp/spi_flash-patch.rule"
+		},
+		{
+			"file" : "/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/spi_flash-prefix/src/spi_flash-stamp/spi_flash-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"spi_flash"
+		],
+		"name" : "spi_flash"
+	}
+}

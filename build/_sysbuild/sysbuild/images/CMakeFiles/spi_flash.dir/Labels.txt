@@ -1,0 +1,13 @@
+# Target labels
+ spi_flash
+# Source files and their labels
+/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/CMakeFiles/spi_flash
+/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/CMakeFiles/spi_flash.rule
+/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/CMakeFiles/spi_flash-complete.rule
+/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/spi_flash-prefix/src/spi_flash-stamp/spi_flash-build.rule
+/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/spi_flash-prefix/src/spi_flash-stamp/spi_flash-configure.rule
+/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/spi_flash-prefix/src/spi_flash-stamp/spi_flash-download.rule
+/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/spi_flash-prefix/src/spi_flash-stamp/spi_flash-install.rule
+/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/spi_flash-prefix/src/spi_flash-stamp/spi_flash-mkdir.rule
+/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/spi_flash-prefix/src/spi_flash-stamp/spi_flash-patch.rule
+/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/_sysbuild/sysbuild/images/spi_flash-prefix/src/spi_flash-stamp/spi_flash-update.rule

@@ -1,0 +1,7 @@
+default: spi_flash
+build_dir: /opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build
+domains:
+  - name: spi_flash
+    build_dir: /opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/build/spi_flash
+flash_order:
+  - spi_flash

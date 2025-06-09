@@ -1,0 +1,47 @@
+&adc {
+	status = "disabled";
+};
+
+&pwm0 {
+	status = "disabled";
+};
+
+&qspi {
+	status = "disabled";
+};
+
+&uart0 {
+	status = "disabled";
+};
+
+&i2c1 {
+	status = "disabled";
+};
+
+/ {
+    aliases {
+        test = &i2s0;
+    };
+};
+
+&clock {
+	hfclkaudio-frequency = <11289600>;
+};
+
+&i2s0 {
+    status = "okay";
+    pinctrl-0 = <&i2s0_default>;
+    pinctrl-names = "default";
+	clock-source = "ACLK";
+};
+
+&pinctrl {
+    compatible = "nordic,nrf-pinctrl";
+    i2s0_default: i2s0_default {
+        group {
+            psels = <NRF_PSEL(I2S_SCK_M, 1, 15)>,
+                    <NRF_PSEL(I2S_LRCK_M,  1, 12)>,
+                    <NRF_PSEL(I2S_SDOUT,   1, 13)>;
+        };
+    };
+};

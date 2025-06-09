@@ -1,0 +1,2 @@
+osource "/opt/nordic/ncs/v2.9.0/zephyr/samples/drivers/spi_flash/boards/shields/*/Kconfig.defconfig"
+osource "/opt/nordic/ncs/v2.9.0/nrf/boards/shields/*/Kconfig.defconfig"
